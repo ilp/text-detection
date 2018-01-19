@@ -13,6 +13,13 @@ t0 = time.clock()
 
 diagnostics = True
 
+def CannyThreshold(lowThreshold):
+    detected_edges = cv2.GaussianBlur(gray,(3,3),0)
+    detected_edges = cv2.Canny(detected_edges,lowThreshold,lowThreshold*ratio,apertureSize = kernel_size)
+    dst = cv2.bitwise_and(img,img,mask = detected_edges)  # just add some colours to edges from original image.
+    
+    return detected_edges
+
 def detecting_edges(filepath):
     gray_img = cv2.imread(filepath, 0)
     #gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -90,9 +97,21 @@ def _swt(theta, edges, sobelx64f, sobely64f):
 filepath = sys.argv[1]
 
 canny, sobelx, sobely, theta = detecting_edges(filepath)
-swt = _swt(theta, canny, sobelx, sobely)
+#swt = _swt(theta, canny, sobelx, sobely)
 cv2.imwrite("canny.jpg", canny)
 cv2.imwrite("sobelx.jpg", sobelx)
 cv2.imwrite("sobely.jpg", sobely)
 cv2.imwrite("theta.jpg", theta)
-cv2.imwrite("swt.jpg", swt)
+#cv2.imwrite("swt.jpg", swt)
+
+
+lowThreshold = 0
+max_lowThreshold = 100
+ratio = 3
+kernel_size = 3
+
+img = cv2.imread(filepath)
+gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+cv2.imwrite("canny2.jpg", CannyThreshold(0))
+if cv2.waitKey(0) == 27:
+    cv2.destroyAllWindows()
