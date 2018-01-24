@@ -7,7 +7,7 @@ import os
 import time
 import numpy as np
 from matplotlib import pyplot as plt
-
+from StrokeWidthTransform import swt
 
 t0 = time.clock()
 
