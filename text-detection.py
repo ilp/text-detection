@@ -1,117 +1,116 @@
-#!/usr/bin/python
-
-import cv2
-import sys
 import math
-import os
-import time
 import numpy as np
+import cv2
+import os
+import sys
+from time import time
+from scipy.spatial import KDTree
 from matplotlib import pyplot as plt
-from StrokeWidthTransform import swt
 
-t0 = time.clock()
+CANNY_THRESHOLD_MIN = 250
+CANNY_THRESHOLD_MAX = 400
+MORPH_WINDOW = (7, 7)
 
-diagnostics = True
+MAX_RAY_LEN = 100
+MAX_ANGL_DIFF = math.pi/2
 
-def CannyThreshold(lowThreshold):
-    detected_edges = cv2.GaussianBlur(gray,(3,3),0)
-    detected_edges = cv2.Canny(detected_edges,lowThreshold,lowThreshold*ratio,apertureSize = kernel_size)
-    dst = cv2.bitwise_and(img,img,mask = detected_edges)  # just add some colours to edges from original image.
+# improve the image to a best edge detection 
+def pre_processing(filepath):
+    img_original = cv2.imread(filepath)
+    img_gray = cv2.cvtColor(img_original, cv2.COLOR_BGR2GRAY)
+    img_equ = cv2.equalizeHist(img_gray)
+
+    return img_equ
+
+# detects edges of an image
+def edge_detection(img_preprocessed):
+    img_edges = cv2.Canny(img_preprocessed, CANNY_THRESHOLD_MIN, CANNY_THRESHOLD_MAX)
+    kernel = np.ones(MORPH_WINDOW, np.uint8)
+    dilated = cv2.dilate(img_edges,kernel,iterations = 2)
     
-    return detected_edges
+    return img_edges
 
-def detecting_edges(filepath):
-    gray_img = cv2.imread(filepath, 0)
-    #gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray_img, 175, 320, apertureSize=3)
-    sobel_x = cv2.Sobel(gray_img,cv2.CV_64F,1,0,ksize=-1)
-    sobel_y = cv2.Sobel(gray_img,cv2.CV_64F,0,1,ksize=-1)
-    theta = np.arctan2(sobel_x, sobel_y)
+# detects the horizontal and vertical gradients
+def gradient_detection(img_preprocessed):
+    sobelx64f = cv2.Sobel(img_preprocessed, cv2.CV_64F, 1, 0, ksize=5)
+    sobely64f = cv2.Sobel(img_preprocessed, cv2.CV_64F, 0, 1, ksize=5)
+    theta = np.arctan2(sobely64f, sobelx64f)
 
-    return (edges, sobel_x, sobel_y, theta)
+    return sobelx64f, sobely64f, theta
 
-def _swt(theta, edges, sobelx64f, sobely64f):
+# find the stroke of edges
+def strokeWidthTransform(theta, edges, sobelx64f, sobely64f, verbose=0):
     # create empty image, initialized to infinity
     swt = np.empty(theta.shape)
     swt[:] = np.Infinity
     rays = []
 
-    print time.clock() - t0
+    # Determine gradient-direction [d] for all edges
+    step_x = -1 * sobelx64f
+    step_y = -1 * sobely64f
+    mag = np.sqrt(step_x * step_x + step_y * step_y)
 
-    # now iterate over pixels in image, checking Canny to see if we're on an edge.
-    # if we are, follow a normal a ray to either the next edge or image border
-    # edgesSparse = scipy.sparse.coo_matrix(edges)
-    step_x_g = -1 * sobelx64f
-    step_y_g = -1 * sobely64f
-    mag_g = np.sqrt( step_x_g * step_x_g + step_y_g * step_y_g )
-    grad_x_g = step_x_g / mag_g
-    grad_y_g = step_y_g / mag_g
+    with np.errstate(divide='ignore', invalid='ignore'):
+        d_all_x = step_x / mag
+        d_all_y = step_y / mag
 
-    for x in xrange(edges.shape[1]):
-        for y in xrange(edges.shape[0]):
-            if edges[y, x] > 0:
-                step_x = step_x_g[y, x]
-                step_y = step_y_g[y, x]
-                mag = mag_g[y, x]
-                grad_x = grad_x_g[y, x]
-                grad_y = grad_y_g[y, x]
-                ray = []
-                ray.append((x, y))
-                prev_x, prev_y, i = x, y, 0
+    # Scan edge-image for rays [p]====[q]
+    for p_x in range(edges.shape[1]):
+        for p_y in range(edges.shape[0]):
+
+            # Start ray if [p] is on edge
+            if edges[p_y, p_x] > 0:
+                d_p_x = d_all_x[p_y, p_x]
+                d_p_y = d_all_y[p_y, p_x]
+                if math.isnan(d_p_x) or math.isnan(d_p_y):
+                    continue
+                ray = [(p_x, p_y)]
+                prev_x, prev_y, i = p_x, p_y, 0
+
+                # Moving in the gradient direction [d_p] to search for ray-terminating [q]
                 while True:
                     i += 1
-                    cur_x = math.floor(x + grad_x * i)
-                    cur_y = math.floor(y + grad_y * i)
-
-                    if cur_x != prev_x or cur_y != prev_y:
-                        # we have moved to the next pixel!
+                    q_x = math.floor(p_x + d_p_x * i)
+                    q_y = math.floor(p_y + d_p_y * i)
+                    if q_x != prev_x or q_y != prev_y:
                         try:
-                            if edges[cur_y, cur_x] > 0:
-                                # found edge,
-                                ray.append((cur_x, cur_y))
-                                theta_point = theta[y, x]
-                                alpha = theta[cur_y, cur_x]
-                                if math.acos(grad_x * -grad_x_g[cur_y, cur_x] + grad_y * -grad_y_g[cur_y, cur_x]) < np.pi/2.0:
-                                    thickness = math.sqrt( (cur_x - x) * (cur_x - x) + (cur_y - y) * (cur_y - y) )
+                            # Terminate ray if [q] is on edge
+                            if edges[q_y, q_x] > 0:
+                                ray.append((q_x, q_y))
+                                # Check if length of ray is above threshold
+                                if len(ray) > MAX_RAY_LEN:
+                                    break
+                                # Check if gradient direction is roughly opposite
+                                # d_q_x = d_all_x[q_y, q_x]
+                                # d_q_y = d_all_y[q_y, q_x]
+                                delta = max(min(d_p_x * -d_all_x[q_y, q_x] + d_p_y * -d_all_y[q_y, q_x], 1.0), -1.0)
+                                if not math.isnan(delta) and math.acos(max([-1.0, min([1.0, delta])])) < MAX_ANGL_DIFF:
+                                    # Save the ray and set SWT-values of ray-pixel
+                                    ray_len = math.sqrt((q_x - p_x) ** 2 + (q_y - p_y) ** 2)
                                     for (rp_x, rp_y) in ray:
-                                        swt[rp_y, rp_x] = min(thickness, swt[rp_y, rp_x])
-                                    rays.append(ray)
+                                        swt[rp_y, rp_x] = min(ray_len, swt[rp_y, rp_x])
+                                    rays.append(np.asarray(ray))
                                 break
-                            # this is positioned at end to ensure we don't add a point beyond image boundary
-                            ray.append((cur_x, cur_y))
+                            # If [q] is neither on edge nor out of bounds, append to ray
+                            ray.append((q_x, q_y))
+                        # Reached image boundary
                         except IndexError:
-                            # reached image boundary
                             break
-                        prev_x = cur_x
-                        prev_y = cur_y
+                        prev_x = q_x
+                        prev_y = q_y
 
+    # Compute median SWT
     for ray in rays:
-        median = np.median([swt[y, x] for (x, y) in ray])
-        for (x, y) in ray:
-            swt[y, x] = min(median, swt[y, x])
-    if diagnostics:
-        cv2.imwrite('swt.jpg', swt * 100)
+        median = np.median(swt[ray[:, 1], ray[:, 0]])
+        for (p_x, p_y) in ray:
+            swt[p_y, p_x] = min(median, swt[p_y, p_x])
 
-    return rays
+    if verbose > 0:
+        cv2.imwrite('output/swt.jpg', swt * 100)
+
+    return swt
+
 
 filepath = sys.argv[1]
 
-canny, sobelx, sobely, theta = detecting_edges(filepath)
-#swt = _swt(theta, canny, sobelx, sobely)
-cv2.imwrite("canny.jpg", canny)
-cv2.imwrite("sobelx.jpg", sobelx)
-cv2.imwrite("sobely.jpg", sobely)
-cv2.imwrite("theta.jpg", theta)
-#cv2.imwrite("swt.jpg", swt)
-
-
-lowThreshold = 0
-max_lowThreshold = 100
-ratio = 3
-kernel_size = 3
-
-img = cv2.imread(filepath)
-gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-cv2.imwrite("canny2.jpg", CannyThreshold(0))
-if cv2.waitKey(0) == 27:
-    cv2.destroyAllWindows()
+img = pre_processing(filepath)
