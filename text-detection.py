@@ -1,3 +1,8 @@
+# FEDERAL RURAL UNIVERSITY OF PERNAMBUCO
+# DISCIPLINE OF IMAGE PROCESSING
+# PROFESSOR VALMIR MACARIO
+# STUDENT IVERSON LUIS PEREIRA
+# COURSE OF COMPUTER SCIENCE
 import math
 import numpy as np
 import cv2
@@ -15,7 +20,7 @@ MAX_RAY_LEN = 100
 MAX_ANGL_DIFF = math.pi/2
 
 # improve the image to a best edge detection 
-def pre_processing(filepath):
+def pre_processing(filepath):    
     img_original = cv2.imread(filepath)
     img_gray = cv2.cvtColor(img_original, cv2.COLOR_BGR2GRAY)
     img_equ = cv2.equalizeHist(img_gray)
