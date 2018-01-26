@@ -15,28 +15,35 @@ from matplotlib import pyplot as plt
 CANNY_THRESHOLD_MIN = 250
 CANNY_THRESHOLD_MAX = 400
 MORPH_WINDOW = (7, 7)
+INTERATIONS_MORPH = 1
 
 MAX_RAY_LEN = 100
 MAX_ANGL_DIFF = math.pi/2
 
-# improve the image to a best edge detection 
-def pre_processing(filepath):    
-    img_original = cv2.imread(filepath)
+def pre_processing(img_path):
+    """
+    improve the image to a best edge detection
+    """
+    img_original = cv2.imread(img_path)
     img_gray = cv2.cvtColor(img_original, cv2.COLOR_BGR2GRAY)
     img_equ = cv2.equalizeHist(img_gray)
 
     return img_equ
 
-# detects edges of an image
 def edge_detection(img_preprocessed):
+    """
+    detects edges of an image
+    """
     img_edges = cv2.Canny(img_preprocessed, CANNY_THRESHOLD_MIN, CANNY_THRESHOLD_MAX)
     kernel = np.ones(MORPH_WINDOW, np.uint8)
-    dilated = cv2.dilate(img_edges,kernel,iterations = 2)
-    
-    return img_edges
+    dilated = cv2.dilate(img_edges, kernel, INTERATIONS_MORPH)
 
-# detects the horizontal and vertical gradients
+    return dilated
+
 def gradient_detection(img_preprocessed):
+    """
+    detects the horizontal and vertical gradients
+    """
     sobelx64f = cv2.Sobel(img_preprocessed, cv2.CV_64F, 1, 0, ksize=5)
     sobely64f = cv2.Sobel(img_preprocessed, cv2.CV_64F, 0, 1, ksize=5)
     theta = np.arctan2(sobely64f, sobelx64f)
@@ -116,6 +123,11 @@ def strokeWidthTransform(theta, edges, sobelx64f, sobely64f, verbose=0):
     return swt
 
 
-filepath = sys.argv[1]
+def main():
+    """
+    run the program to detect text in images
+    """
+    filepath = sys.argv[1]
+    img = pre_processing(filepath)
 
-img = pre_processing(filepath)
+main()
