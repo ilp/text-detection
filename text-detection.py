@@ -356,24 +356,6 @@ def draw_mask(original_img, letters, words):
 
     return final_img
 
-def bounding_box(letter_data, word_lists=None):
-
-    # north-west point [pt1]
-    pt1 = letter_data[:, 3:5].astype(int)
-
-    # south-east point [pt2] = (north + height, west + width)
-    pt2_y = letter_data[:, 3] + letter_data[:, 1]
-    pt2_x = letter_data[:, 4] + letter_data[:, 2]
-    pt2 = np.vstack([pt2_y, pt2_x]).T.astype(int)
-
-    if word_lists is None:
-        return np.column_stack([pt1, pt2])
-
-    return np.array([[pt1[list(w)][:, 0].min(),
-                      pt1[list(w)][:, 1].min(),
-                      pt2[list(w)][:, 0].max(),
-                      pt2[list(w)][:, 1].max()] for w in word_lists])
-
 def main():
     """
     run the program to detect text in images
